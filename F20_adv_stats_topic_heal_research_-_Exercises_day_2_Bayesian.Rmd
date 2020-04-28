@@ -3,9 +3,11 @@ title: "Exercises - day 2"
 author: "Benjamin Skov Kaas-Hansen"
 date: "4/28/2020"
 output: 
-  ioslides_presentation: 
-    smaller: true
-    widescreen: true
+  html_document:
+      theme: paper
+  # ioslides_presentation: 
+  #   smaller: true
+  #   widescreen: true
 ---
 
 ```{r setup, include=FALSE}
@@ -107,7 +109,8 @@ Data clearly dominate the prior to a greater extent when larger sample size.
 ggplot() +
     stat_density(aes(x = prior_theta_2_5), geom = "line", linetype = 2) +
     stat_density(aes(x = post_theta_2_5), geom = "line") +
-    stat_density(aes(x = posterior_theta(2, 5, 840, 270)), geom = "line", colour = "red")
+    stat_density(aes(x = posterior_theta(2, 5, 840, 270)), geom = "line", colour = "red") +
+    labs(x = "Probability")
 ```
 
 # Using rstanarm
