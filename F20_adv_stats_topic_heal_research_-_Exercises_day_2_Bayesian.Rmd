@@ -1,0 +1,382 @@
+---
+title: "Exercises - day 2"
+author: "Benjamin Skov Kaas-Hansen"
+date: "4/28/2020"
+output: 
+  ioslides_presentation: 
+    smaller: true
+    widescreen: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center", fig.height=4)
+```
+
+## 0. Initialise
+```{r}
+for (p in c("tidyverse", "ggplot2", "broom"))
+    library(p, character.only = TRUE)
+
+seed <- 42
+set_seed <- function() set.seed(seed)
+```
+
+# Understanding Bayesian analysis by hand
+
+## 1. Run code
+
+```{r, echo = TRUE}
+n_sim <- 10000 # No. samples to generate (NB! more than in exercises)
+sample_size <- 84 # The sample size (horoscopes)
+observed_succes <- 27 # No. of observed correct guesses
+
+theta <- runif(n_sim) # Random draw from (flat) prior
+res <- rbinom(n_sim, size = sample_size, prob = theta) 
+    # Conditional draws from likelihood
+keep <- theta[res == observed_succes] 
+    # Theta values that match observations (= posterior)
+```
+
+## 2. Plot histogram
+```{r pressure}
+qplot(keep, geom = "histogram", bins = 10)
+```
+
+## 3. Median posterior and MAP
+```{r}
+find_mode <- function(x, n_digits = 3) { # helper function; finds mode of x
+    x <- round(x, n_digits)
+    ux <- unique(x)
+    ux[which.max(tabulate(match(x, ux)))][1] # index in case of ties
+}
+```
+
+```{r}
+median(keep)
+find_mode(keep)
+```
+
+## 4. Non-uniform prior
+Using beta distribution (which is also conjugate prior to binomial distribution, obviating sampling)
+
+```{r}
+posterior_theta <- function(a, b, n = sample_size, k = observed_succes) {
+    set_seed()
+    theta <- rbeta(n_sim, a, b) # Random draw from beta prior
+    set_seed()
+    res <- rbinom(n_sim, size = n, prob = theta) 
+        # Conditional draws from likelihood
+    return(theta[res == k])
+        # Theta values that match observations (= posterior)
+}
+
+prior_theta_2_5 <- rbeta(n_sim, 2, 5)
+post_theta_2_5 <- posterior_theta(2, 5)
+```
+
+## 5 + 6. Use non-flat prior
+```{r, fig.height=3}
+ggplot() +
+    stat_density(aes(x = prior_theta_2_5), geom = "line", linetype = 2) +
+    stat_density(aes(x = post_theta_2_5), geom = "line") +
+    stat_density(aes(x = keep), geom = "line", colour = "red")
+```
+
+```{r}
+find_mode(post_theta_2_5)
+```
+
+## 7. Conclusion in words
+The distribution is pulled upwards towards higher probability of guessing one's horoscope.
+
+## 8. Comparison with flat prior
+Not very big difference.
+
+## 9. Effective samples
+Quite few samples are carried over, low effective sample size => unstable estimates (especially interval bounds).
+
+```{r}
+length(post_theta_2_5)
+scales::percent(length(post_theta_2_5) / n_sim, 0.1)
+```
+
+## 10. Larger sample
+Data clearly dominate the prior to a greater extent when larger sample size.
+
+```{r}
+ggplot() +
+    stat_density(aes(x = prior_theta_2_5), geom = "line", linetype = 2) +
+    stat_density(aes(x = post_theta_2_5), geom = "line") +
+    stat_density(aes(x = posterior_theta(2, 5, 840, 270)), geom = "line", colour = "red")
+```
+
+# Using rstanarm
+
+## 0. Inititalise
+```{r, message=FALSE}
+for (p in c("rstanarm", "bayesplot"))
+    library(p, character.only = TRUE)
+
+options(mc.cores = parallel::detectCores() - 1)
+
+df <- tibble(correct = rep(0:1, times = c(84 - 27, 27)))
+glimpse(df)
+```
+
+## 1. Using stan_glm()
+```{r, results=FALSE}
+fit <- stan_glm(correct ~ 1, data = df, family = binomial)
+```
+
+```{r}
+fit
+```
+
+
+## 2. Extract posterior distribution
+```{r, fig.height=4}
+post_draws <- as.data.frame(fit)
+mcmc_areas(post_draws)
+```
+
+## 3. MAP and median posterior on probability scale
+```{r}
+expit <- function(x) exp(x) / (1 + exp(x)) # Inverse of logistic transformation
+intercept <- post_draws[, 1]
+scales::percent(median(expit(intercept)))
+scales::percent(find_mode(expit(intercept))) # MAP
+```
+
+## 4. Flat prior
+```{r, results=FALSE}
+fit_flat_prior <- update(fit, prior_intercept = NULL)
+```
+
+```{r}
+fit_flat_prior
+```
+
+
+## 5. Non-flat prior
+```{r, results=FALSE}
+fit_nonflat_prior <- update(fit, prior_intercept = normal(0, 0.1))
+```
+
+```{r}
+fit_nonflat_prior
+```
+
+
+## 6. My own prior
+```{r, results=FALSE}
+fit_own_prior <- update(fit, prior_intercept = cauchy(0, 4))
+```
+
+```{r}
+fit_own_prior
+```
+
+---
+
+```{r, fig.height=4}
+small_sample_posteriors <- sapply(c("fit_flat_prior", "fit_nonflat_prior", "fit_own_prior"),
+       function(.) expit(as.data.frame(get(.))[, 1])) %>%
+    as.data.frame() %>%
+    gather(prior_spec, value) %>%
+    mutate(n_sample = 84)
+
+ggplot(small_sample_posteriors, aes(x = value, colour = prior_spec)) +
+    stat_density(geom = "line", position = "identity") +
+    scale_colour_brewer(palette = "Set1")
+```
+
+## 7. Larger sample
+Output on next page.
+
+```{r, results=FALSE}
+df2 <- tibble(correct = rep(0:1, times = c(840 - 270, 270)))
+for (f in c("fit_flat_prior", "fit_nonflat_prior", "fit_own_prior")) {
+    assign(paste0(f, "_larger"), update(get(f), data = df2))
+}
+
+large_sample_posteriors <- sapply(grep("prior_larger", ls(), value = TRUE),
+       function(.) expit(as.data.frame(get(.))[, 1])) %>%
+    as.data.frame() %>%
+    gather(prior_spec, value) %>%
+    mutate(n_sample = 840)
+```
+
+---
+
+```{r, fig.height=4}
+bind_rows(small_sample_posteriors, large_sample_posteriors) %>%
+    ggplot(aes(x = value, colour = str_remove(prior_spec, "\\_larger"))) +
+        stat_density(geom = "line", position = "identity") +
+        scale_colour_brewer(palette = "Set1") +
+        guides(colour = guide_legend(title = NULL)) +
+        facet_wrap(~ paste("N =", n_sample), ncol = 1)
+```
+
+# Relying on the prior
+
+## 1. Frequentist analysis of P(failure)
+The maximum likelihood estimator $\hat\theta$ (MLE) of a binomial variable with $k$ successes in $n$ trials is $\hat\theta = \frac{k}{n}$. Because $k = 0$,  the MLE is zero, leaving no uncertainty, and so there's no standard error, making it impossible to actually derive a confidence interval. So the forecast would be 0 failures.
+
+## 2. Bayesian analysis of P(failure)
+For a beta(a, b) prior and a binomial(k, n) likelihood, the posterior is beta(a + k, b + n - k), because the beta distribution is a conjugate prior to the binomial likelihood. Thus, `prop_failure` is the posterior distribution of the expected probability of producing a failed drug, assuming a beta(0.5, 0.5) prior (Jeffrey's prior). 
+
+```{r, fig.height=3}
+prob_failure <- rbeta(10000, 0.5 + 0, 0.5 + 365)
+qplot(prob_failure, geom = "density", trim = TRUE)
+scales::percent(median(prob_failure))
+scales::percent(find_mode(prob_failure))
+```
+
+Distribution of expected number of failures with 365 drugs produced.
+```{r}
+qplot(prob_failure * 365, geom = "histogram", binwidth = 1)
+```
+
+
+# Multiple linear regression
+
+## 1. Load data
+```{r}
+library("isdals")
+data(fev)
+glimpse(fev)
+```
+
+## 2. Analyse with regular model
+Smoking associated with decreased FEV.
+
+```{r}
+freq_fit <- lm(FEV ~ ., data = fev)
+tidy(freq_fit)
+```
+
+## 3.-5. Bayesian analysis
+```{r, results=FALSE}
+bayes_fit <- stan_glm(FEV ~ ., data = fev, prior_intercept = normal(0, 1))
+```
+
+```{r, eval=FALSE}
+shinystan::launch_shinystan(bayes_fit)
+```
+
+## 6. More and longer chains
+```{r, results=FALSE}
+bayes_fit_more_longer <- update(bayes_fit, iter = 6000, chains = 8)
+```
+
+```{r}
+bayes_fit_more_longer
+```
+
+## 7. Smoking parameter
+```{r, fig.height=3}
+mcmc_areas(as.data.frame(bayes_fit_more_longer), "Smoke")
+```
+
+P(smoking effect > 0)
+```{r}
+scales::percent(mean(as.data.frame(bayes_fit_more_longer)$Smoke > 0), 0.1)
+```
+
+```{r}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+
+## 8. Use `brms`
+```{r, message=FALSE, results=FALSE}
+library(brms)
+brm_fit <- brm(FEV ~ ., data = fev)
+```
+
+Not big different from `summary([rstanarm_fit])`.
+```{r}
+brm_fit
+```
+
+## 9. Try `get_prior()`
+```{r}
+get_prior(FEV ~ ., data = fev)
+```
+
+## 10.-11. Set priors and re-run `brm`
+```{r, results=FALSE}
+priors <- c(prior_string("normal(0, 2)", class = "b"), 
+            prior(normal(1, 2), class = b, coef = Ht), 
+            prior(cauchy(0, 2), class = "sigma"))         
+brm_fit_custom_priors <- update(brm_fit, prior = priors)
+```
+
+```{r}
+brm_fit_custom_priors
+```
+
+## 12. LOOCV
+```{r, results=FALSE}
+brm_fit_wo_smoke <- update(brm_fit_custom_priors, formula = ~ . - Smoke, newdata = fev)
+```
+
+```{r}
+for (f in c("brm_fit_wo_smoke", "brm_fit", "brm_fit_custom_priors"))
+    assign(f, add_criterion(get(f), c("loo", "waic")))
+
+loo_compare(brm_fit_wo_smoke, brm_fit, brm_fit_custom_priors, criterion = "loo")
+```
+
+# Analysing data from the Titanic
+
+## 1. Load data
+```{r, include=FALSE}
+library(MESS)
+```
+
+```{r}
+data("Titanic")
+ship <- expand_table(Titanic)
+```
+
+## 2. Frequentist analysis
+```{r}
+glm(Survived ~ ., data = ship, family = "binomial")
+```
+
+## 3. Bayesian approach
+```{r, results=FALSE}
+titanic_bayes <- stan_glm(Survived ~ ., data = ship, family = binomial)
+```
+
+Lower classes associated with lower prob. of survival. Women more likely to survive; children as well. Could put on numbers, but running out of time.
+
+```{r}
+summary(titanic_bayes)
+get_prior(Survived ~ ., data = ship, family = binomial)
+```
+
+# Quasi-complete separation
+
+## 1. Load data
+```{r}
+load(url("https://biostatistics.dk/teaching/advtopicsB/data/qsep.rda"))
+glimpse(qsep)
+```
+
+## 2. Frequentist analysis
+```{r}
+freq_fit <- glm(y ~ x, data = qsep, family = "binomial")
+summary(freq_fit)
+```
+
+## 3. Bayesian approach
+```{r, results=FALSE}
+bayes_fit <- stan_glm(y ~ x, data = qsep, family = binomial)
+```
+
+```{r}
+summary(bayes_fit)
+```
+
