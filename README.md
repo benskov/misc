@@ -1,5 +1,3 @@
-# Links, by topic
-
 ### E20 Basal biostatistik
 - Uge 8: Logistisk regression \[ [Rmarkdown](E20_basal_statistik_uge_8_logistisk_regression.Rmd) \| [HTML](https://htmlpreview.github.io/?https://github.com/benskov/misc/blob/master/E20_basal_statistik_uge_8_logistisk_regression.html) \]
 - Uge 9: Overlevelsesanalyse \[ [Rmarkdown](E20_basal_statistik_uge_9_overlevelsesanalyse.Rmd) \| [HTML](https://htmlpreview.github.io/?https://github.com/benskov/misc/blob/master/E20_basal_statistik_uge_9_overlevelsesanalyse.html) \]
